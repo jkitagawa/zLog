@@ -60,6 +60,8 @@ type
     constructor Create(AKeyer: TdmZLogKeyer);
   end;
 
+  TUsbPortDataArray = array[0..1] of Byte;
+
   TdmZLogKeyer = class(TDataModule)
     HidController: TJvHidDeviceController;
     ZComKeying: TCommPortDriver;
@@ -67,6 +69,8 @@ type
     function DoEnumeration(HidDev: TJvHidDevice; const Index: Integer) : Boolean;
     procedure DataModuleCreate(Sender: TObject);
     procedure DataModuleDestroy(Sender: TObject);
+    procedure HidControllerDeviceData(HidDev: TJvHidDevice; ReportID: Byte;
+      const Data: Pointer; Size: Word);
   private
     { Private êÈåæ }
     FMonitorThread: TKeyerMonitorThread;
@@ -82,6 +86,12 @@ type
     FUsbPortDataLock: TRTLCriticalSection;
     FPrevUsbPortData: Byte;
     FUsbPortData: Byte;
+
+    FUsbPortIn: TUsbPortDataArray;
+    FUsbPortOut: TUsbPortDataArray;
+
+    FPrevPortIn: array[0..7] of Byte;
+
 
     FUserFlag: Boolean; // can be set to True by user. set to False only when ClrBuffer is called or "  is reached in the sending buffer. // 1.9z2 used in QTCForm
     FVoiceFlag: Integer;  //temporary
@@ -186,6 +196,7 @@ type
 
     procedure SetCallSign(S: string); {Update realtime callsign}
     procedure ClrBuffer; {Stops CW and clears buffer}
+    procedure ClrBuffer2; {Stops CW and clears buffer}
     procedure CancelLastChar; {BackSpace}
 
     procedure PauseCW; {Pause}
@@ -231,6 +242,10 @@ type
     procedure SetSerialCWKeying(PortNr : integer);
 
     property KeyingSignalReverse: Boolean read FKeyingSignalReverse write FKeyingSignalReverse;
+
+    property UsbPortIn: TUsbPortDataArray read FUsbPortIn;
+    property UsbPortOut: TUsbPortDataArray read FUsbPortOut;
+    procedure SendUsbPortData();
   end;
 
 var
@@ -288,6 +303,8 @@ begin
    FEndOfWordCounter := 0;
 
    FKeyingSignalReverse := False;
+
+   ZeroMemory(@FPrevPortIn, 8);
 end;
 
 procedure TdmZLogKeyer.DataModuleDestroy(Sender: TObject);
@@ -299,7 +316,8 @@ begin
    FMonitorThread.Free();
    FPaddleThread.Free();
    if Assigned(FUSBIF4CW) then begin
-      FUSBIF4CW.CloseFile();
+      FUSBIF4CW.CheckOut();
+//      FUSBIF4CW.CloseFile();
    end;
 end;
 
@@ -329,6 +347,55 @@ begin
    Result := True;
 end;
 
+procedure TdmZLogKeyer.HidControllerDeviceData(HidDev: TJvHidDevice;
+  ReportID: Byte; const Data: Pointer; Size: Word);
+var
+   {$IFDEF DEBUG}
+   s: string;
+   {$ENDIF}
+   p: PBYTE;
+begin
+   p := Data;
+
+   {$IFDEF DEBUG}
+   s := IntToHex(p[0], 2) + ' ' +
+        IntToHex(p[1], 2) + ' ' +
+        IntToHex(p[2], 2) + ' ' +
+        IntToHex(p[3], 2) + ' ' +
+        IntToHex(p[4], 2) + ' ' +
+        IntToHex(p[5], 2) + ' ' +
+        IntToHex(p[6], 2) + ' ' +
+        IntToHex(p[7], 2);
+   {$ENDIF}
+
+   // Port Data In
+   FUsbPortIn[0] := p[6];
+   FUsbPortIn[1] := p[7];
+
+   // if paddle in
+   if ((FUsbPortIn[1] and $01) = 0) or
+      ((FUsbPortIn[1] and $04) = 0) then begin
+      {$IFDEF DEBUG}
+      OutputDebugString(PChar('**PADDLE IN**'));
+      {$ENDIF}
+      ClrBuffer2();
+   end;
+
+   {$IFDEF DEBUG}
+   if (p[0] <> FPrevPortIn[0]) or
+      (p[1] <> FPrevPortIn[1]) or
+      (p[2] <> FPrevPortIn[2]) or
+      (p[3] <> FPrevPortIn[3]) or
+      (p[4] <> FPrevPortIn[4]) or
+      (p[5] <> FPrevPortIn[5]) or
+      (p[6] <> FPrevPortIn[6]) or
+      (p[7] <> FPrevPortIn[7]) then begin
+      OutputDebugString(PChar('***HidControllerDeviceData*** ReportID=' + IntToHex(ReportID,2) + ' DATA=' + s));
+      CopyMemory(@FPrevPortIn, p, 8);
+   end;
+   {$ENDIF}
+end;
+
 procedure TdmZLogKeyer.SetRigFlag(i: Integer); // 0 : no rigs, 1 : rig 1, etc
 begin
    if FKeyingPort = tkpUSB then begin
@@ -342,6 +409,7 @@ begin
          else
             FUsbPortData := FUsbPortData;
       end;
+      SendUsbPortData();
       LeaveCriticalSection(FUsbPortDataLock);
       Exit;
    end;
@@ -357,6 +425,7 @@ begin
       else begin
          FUsbPortData := FUsbPortData or $08;
       end;
+      SendUsbPortData();
       LeaveCriticalSection(FUsbPortDataLock);
       Exit;
    end;
@@ -388,6 +457,7 @@ begin
       else begin
          FUsbPortData := FUsbPortData or $02;
       end;
+      SendUsbPortData();
       LeaveCriticalSection(FUsbPortDataLock);
       Exit;
    end;
@@ -634,6 +704,7 @@ begin
       tkpUSB: begin
          EnterCriticalSection(FUsbPortDataLock);
          FUsbPortData := FUsbPortData and $FE;
+         SendUsbPortData();
          LeaveCriticalSection(FUsbPortDataLock);
       end;
    end;
@@ -654,6 +725,7 @@ begin
       tkpUSB: begin
          EnterCriticalSection(FUsbPortDataLock);
          FUsbPortData := FUsbPortData or $01;
+         SendUsbPortData();
          LeaveCriticalSection(FUsbPortDataLock);
       end;
    end;
@@ -947,6 +1019,9 @@ begin
    CQRepeatIntervalSec := 2.0;
    CQLoopCount := 0;
    CQLoopMax := 15;
+
+   FUsbPortData := $FF;
+   SendUsbPortData();
 
    timeBeginPeriod(1);
 
@@ -1486,10 +1561,10 @@ begin
    end;
    FMonitorThread.Start();
 
-   if FPaddleThread = nil then begin
-      FPaddleThread := TKeyerPaddleThread.Create(Self);
-   end;
-   FPaddleThread.Start();
+//   if FPaddleThread = nil then begin
+//      FPaddleThread := TKeyerPaddleThread.Create(Self);
+//   end;
+//   FPaddleThread.Start();
 
    FInitialized := True;
 end;
@@ -1593,6 +1668,34 @@ begin
    if FPTTEnabled then begin
       ControlPTT(False);
    end;
+end;
+
+procedure TdmZLogKeyer.ClrBuffer2;
+var
+   m: Integer;
+begin
+   { SendOK:=False; }
+   FSendOK := False;
+   { StringBuffer := ''; }
+   for m := 0 to 2 do begin
+      FCWSendBuf[m, 1] := $FF;
+   end;
+   cwstrptr := 0;
+   FSelectedBuf := 0; // ver 2.1b
+   callsignptr := 0;
+   mousetail := 1;
+   tailcwstrptr := 1;
+   FPaddleWaiting := True;
+//   NoSound;
+//   FSendOK := True;
+   FCQLoopCount := 0;
+//   CW_OFF;
+
+   FUserFlag := False;
+
+//   if FPTTEnabled then begin
+//      ControlPTT(False);
+//   end;
 end;
 
 procedure TdmZLogKeyer.CancelLastChar;
@@ -1853,6 +1956,39 @@ begin
    ZComKeying.Connect;
    ZComKeying.ToggleDTR(False);
    ZComKeying.ToggleRTS(False);
+end;
+
+procedure TdmZLogKeyer.SendUsbPortData();
+var
+   BR: DWORD;
+   OutReport: array[0..8] of Byte;
+begin
+   if FUSBIF4CW = nil then begin
+      Exit;
+   end;
+   OutReport[0] := 0;
+   OutReport[1] := 1;
+   OutReport[2] := FUsbPortData;
+   OutReport[3] := 0;
+   OutReport[4] := 0;
+   OutReport[5] := 0;
+   OutReport[6] := 0;
+   OutReport[7] := 0;
+   OutReport[8] := 0;
+   FUSBIF4CW.SetOutputReport(OutReport, 9);
+//   FUSBIF4CW.WriteFile(OutReport, FUSBIF4CW.Caps.OutputReportByteLength, BR);
+
+//   OutReport[0] := 0;
+//   OutReport[1] := 4;
+//   OutReport[2] := $F;
+//   OutReport[3] := 4;
+//   OutReport[4] := 0;
+//   OutReport[5] := 0;
+//   OutReport[6] := 0;
+//   OutReport[7] := 0;   //FUsbPortData[0];
+//   OutReport[8] := 0;   //FUsbPortData[1];
+//   FUSBIF4CW.WriteFile(OutReport, FUSBIF4CW.Caps.OutputReportByteLength, BR);
+//   FUSBIF4CW.GetInputReport(OutReport, 9);
 end;
 
 { TKeyerMonitorThread }
