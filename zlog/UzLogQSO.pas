@@ -246,7 +246,7 @@ type
 implementation
 
 uses
-  UzLogGlobal;
+  UzLogGlobal, UzLogExtension;
 
 { TQSO }
 
@@ -1101,6 +1101,8 @@ begin
    FBandList[xQSO.Band].Add(aQSO);
 
    FSaved := False;
+
+   zLogContestEvent(evAddQSO, aQSO);
 end;
 
 procedure TLog.AddQue(aQSO: TQSO);
@@ -1153,6 +1155,7 @@ begin
                   // FQsoList[i].QSO := xQSO.QSO;
                   yQSO.Assign(xQSO);
                   RebuildDupeCheckList;
+                  zLogContestEvent(evModifyQSO, yQSO);
                   break;
                end;
             end;
@@ -1220,12 +1223,16 @@ begin
 
    FSaved := False;
    RebuildDupeCheckList;
+
+   zLogContestEvent(evDeleteQSO, aQSO);
 end;
 
 procedure TLog.DeleteQSO(aQSO: TQSO);
 var
    Index: Integer;
 begin
+   zLogContestEvent(evDeleteQSO, aQSO);
+
    Index := FBandList[aQSO.Band].IndexOf(aQSO);
    if Index > -1 then begin
       FBandList[aQSO.Band].Delete(Index);
@@ -1275,6 +1282,8 @@ begin
    FQsoList.Insert(i, aQSO);
    RebuildDupeCheckList;
    FSaved := False;
+
+   zLogContestEvent(evAddQSO, aQSO);
 end;
 
 procedure TLog.Backup(Filename: string);
