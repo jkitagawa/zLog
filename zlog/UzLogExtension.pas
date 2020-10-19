@@ -24,6 +24,9 @@ procedure zLogContestInit(strContestName: string);
 procedure zLogContestEvent(event: TzLogEvent; aQSO: TQSO);
 procedure zLogContestTerm();
 procedure zLogTerminate();
+function zLogCalcPointsHookHandler(aQSO: TQSO): Boolean;
+function zLogExtractMultiHookHandler(aQSO: TQSO; var strMulti: string): Boolean;
+function zLogValidMultiHookHandler(strMulti: string; var fValidMulti: Boolean): Boolean;
 
 implementation
 
@@ -65,11 +68,17 @@ typedf struct _QSODATA {
 
 type
   PTQSOData = ^TQSOData;
-  TExtensionProc = procedure(event: Integer; pszCallsign: PAnsiChar; pqsorec: PTQSOData); stdcall;
+  TExtensionQsoEventProc = procedure(event: Integer; pszCallsign: PAnsiChar; pqsorec: PTQSOData); stdcall;
+  TExtensionPointsCalcProc = function(pqsorec: PTQSOData): Integer; stdcall;
+  TExtensionExtractMultiProc = function(pqsorec: PTQSOData; pszMultiStr: PAnsiChar; nBufferSize: Integer): Integer; stdcall;
+  TExtensionValidMultiProc = function(pszMultiStr: PAnsiChar): Boolean; stdcall;
 
 var
   hExtensionDLL: THandle;
-  pfnExtensionProc: TExtensionProc;
+  pfnExtensionQsoEventProc: TExtensionQsoEventProc;
+  pfnExtensionCalsPountsProc: TExtensionPointsCalcProc;
+  pfnExtensionExtractMultiProc: TExtensionExtractMultiProc;
+  pfnExtensionValidMultiProc: TExtensionValidMultiProc;
 
 // zLogの起動
 procedure zLogInitialize();
@@ -91,7 +100,10 @@ begin
       Exit;
    end;
 
-   @pfnExtensionProc := GetProcAddress(hExtensionDLL, LPCSTR('zLogExtensionProcName'));
+   @pfnExtensionQsoEventProc := GetProcAddress(hExtensionDLL, LPCSTR('zLogExtensionProcName'));
+   @pfnExtensionCalsPountsProc := GetProcAddress(hExtensionDLL, LPCSTR('zLogExtensionPointsCalcProcName'));
+   @pfnExtensionExtractMultiProc := GetProcAddress(hExtensionDLL, LPCSTR('zLogExtensionExtractMultiProcName'));
+   @pfnExtensionValidMultiProc := GetProcAddress(hExtensionDLL, LPCSTR('zLogExtensionValidMultiProcName'));
 end;
 
 // コンテストの初期化完了
@@ -117,9 +129,9 @@ begin
    {$ENDIF}
 
    // example
-   if Assigned(pfnExtensionProc) then begin
+   if Assigned(pfnExtensionQsoEventProc) then begin
       qsorec := aQSO.FileRecord;
-      pfnExtensionProc(Integer(event), PAnsiChar(AnsiString(aQSO.Callsign)), @qsorec);
+      pfnExtensionQsoEventProc(Integer(event), PAnsiChar(AnsiString(aQSO.Callsign)), @qsorec);
    end;
 end;
 
@@ -145,12 +157,111 @@ begin
    end;
 end;
 
+// 得点の計算 handleした場合：True、しなかった場合：Falseを返す
+// handleしたらaQSO.Pointsに点数を入れる
+// DLLの関数で直接入れても良い
+function zLogCalcPointsHookHandler(aQSO: TQSO): Boolean;
+var
+   pts: Integer;
+   qsorec: TQSOData;
+begin
+   {$IFDEF DEBUG}
+   OutputDebugString(PChar('zLogCalcPointsHandler()'));
+   {$ENDIF}
+
+   if hExtensionDLL = 0 then begin
+      Result := False;  // not handled
+      Exit;
+   end;
+
+   if Not Assigned(pfnExtensionCalsPountsProc) then begin
+      Result := False;  // not handled
+      Exit;
+   end;
+
+   // 得点を計算する
+   qsorec := aQSO.FileRecord;
+   pts := pfnExtensionCalsPountsProc(@qsorec);
+
+   aQSO.Points := pts;
+
+   // handled
+   Result := True;
+end;
+
+// マルチ文字列の抽出を行う handleした場合：True、しなかった場合：Falseを返す
+// aQSO.NrRcvdだけを渡しても良いと思うが、とりあえずは全部渡せば不足はなさそう
+function zLogExtractMultiHookHandler(aQSO: TQSO; var strMulti: string): Boolean;
+var
+   qsorec: TQSOData;
+   szBuffer: array[0..255] of AnsiChar;
+begin
+   {$IFDEF DEBUG}
+   OutputDebugString(PChar('zLogExtractMultiHandler()'));
+   {$ENDIF}
+
+   if hExtensionDLL = 0 then begin
+      Result := False;  // not handled
+      Exit;
+   end;
+
+   if Not Assigned(pfnExtensionExtractMultiProc) then begin
+      Result := False;  // not handled
+      Exit;
+   end;
+
+   // マルチを抽出
+   qsorec := aQSO.FileRecord;
+
+   // 例：qsorec.NrRcvdからマルチを抽出しszBufferへC文字列を格納する関数とする
+   ZeroMemory(@szBuffer, SizeOf(szBuffer));
+   pfnExtensionExtractMultiProc(@qsorec, @szBuffer, SizeOf(szBuffer));
+
+   // C文字列をDelphi文字列に変換
+   strMulti := string(PAnsiChar(@szBuffer));
+
+   // handled
+   Result := True;
+end;
+
+// 有効マルチかどうかの判定を行う handleした場合：True、しなかった場合：Falseを返す
+// 判定結果はfValidMultiに格納する 有効：True、無効：False
+function zLogValidMultiHookHandler(strMulti: string; var fValidMulti: Boolean): Boolean;
+var
+   strAnsiMulti: AnsiString;
+begin
+   {$IFDEF DEBUG}
+   OutputDebugString(PChar('zLogValidMultiHandler()'));
+   {$ENDIF}
+
+   if hExtensionDLL = 0 then begin
+      Result := False;  // not handled
+      Exit;
+   end;
+
+   if Not Assigned(pfnExtensionValidMultiProc) then begin
+      Result := False;  // not handled
+      Exit;
+   end;
+
+   // SHIFT-JISのC文字列を渡して有効か判定する
+   // Unicode文字列が処理できるならPCharで渡せば良い
+   strAnsiMulti := AnsiString(strMulti);
+   fValidMulti := pfnExtensionValidMultiProc(PAnsiChar(strAnsiMulti));
+
+   // handled
+   Result := True;
+end;
+
 initialization
   zLogContestInitialized := False;
 
   // example
   hExtensionDLL := 0;
-  pfnExtensionProc := nil;
+  pfnExtensionQsoEventProc := nil;
+  pfnExtensionCalsPountsProc := nil;
+  pfnExtensionExtractMultiProc := nil;
+  pfnExtensionValidMultiProc := nil;
 
 finalization
 

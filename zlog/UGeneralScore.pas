@@ -49,7 +49,7 @@ type
 implementation
 
 uses
-  Main;
+  Main, UzLogExtension;
 
 {$R *.DFM}
 
@@ -763,6 +763,10 @@ var
    ch: Char;
    C: TCountry;
 begin
+   if zLogCalcPointsHookHandler(aQSO) = True then begin
+      Exit;
+   end;
+
    aQSO.Points := PointsTable[aQSO.band, aQSO.Mode];
 
    if formMulti._DXTEST then begin
