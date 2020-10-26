@@ -95,8 +95,9 @@ type
       function GetGeneralName(): string;
       function GetPostContest(): Boolean;
       procedure SelectFirstBand();
+      function GetCFGFileName(): string;
    public
-      property CFGFileName: string read FCFGFileName;
+      property CFGFileName: string read GetCFGFileName;
       property OpGroupIndex: Integer read GetOpGroupIndex;
       property BandGroupIndex: Integer read GetBandGroupIndex;
       property ModeGroupIndex: Integer read GetModeGroupIndex;
@@ -622,6 +623,16 @@ begin
          BandGroup.ItemIndex := i;
          Exit;
       end;
+   end;
+end;
+
+function TMenuForm.GetCFGFileName(): string;
+begin
+   if rbGeneral.Checked = True then begin
+      Result := FCFGFileName;
+   end
+   else begin
+      Result := '';
    end;
 end;
 

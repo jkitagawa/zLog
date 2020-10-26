@@ -20,8 +20,8 @@ type
 
 // zLog本体から呼び出される処理
 procedure zLogInitialize();
-procedure zLogContestInit(strContestName: string);
-procedure zLogContestEvent(event: TzLogEvent; aQSO: TQSO);
+procedure zLogContestInit(strContestName, strCfgFileName: string);
+procedure zLogContestEvent(event: TzLogEvent; bQSO, aQSO: TQSO);
 procedure zLogContestTerm();
 procedure zLogTerminate();
 function zLogCalcPointsHookHandler(aQSO: TQSO): Boolean;
@@ -107,25 +107,35 @@ begin
 end;
 
 // コンテストの初期化完了
-procedure zLogContestInit(strContestName: string);
+// strContestName ・・・ コンテスト名、UserDefinedの場合はCFGファイル内のコンテスト名
+// strCfgFileName ・・・ CFGファイル名 =''の時は必ずbuiltinコンテスト !=''の時は必ずUserDefined
+procedure zLogContestInit(strContestName, strCfgFileName: string);
 begin
    {$IFDEF DEBUG}
-   OutputDebugString(PChar('zLogContestInit(''' + strContestName + ''')'));
+   OutputDebugString(PChar('zLogContestInit(''' + strContestName + ''',''' + strCfgFileName + ''')'));
    {$ENDIF}
    zLogContestInitialized := True;
 end;
 
 // 交信データの追加、変更、削除
-procedure zLogContestEvent(event: TzLogEvent; aQSO: TQSO);
+//                         追加  変更  削除
+// bQSO ・・・ before QSO  nil   ○    ○
+// aQSO ・・・ after QSO   ○    ○    nil
+procedure zLogContestEvent(event: TzLogEvent; bQSO, aQSO: TQSO);
 var
    qsorec: TQSOData;
+   {$IFDEF DEBUG}
+   astr, bstr: string;
+   {$ENDIF}
 begin
    if zLogContestInitialized = False then begin
       Exit;
    end;
 
    {$IFDEF DEBUG}
-   OutputDebugString(PChar('zLogEventProc(' + IntToStr(Integer(event)) + ',''' + aQSO.Callsign + ''')'));
+   if Assigned(bQSO) then bstr := bQSO.Callsign else bstr := 'nil';
+   if Assigned(aQSO) then astr := aQSO.Callsign else astr := 'nil';
+   OutputDebugString(PChar('zLogEventProc(' + IntToStr(Integer(event)) + ',' + '''' + bstr + ''',' + '''' + astr + ''')'));
    {$ENDIF}
 
    // example

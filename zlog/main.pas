@@ -7048,7 +7048,7 @@ begin
       // ‰Šú‰»Š®—¹
       FInitialized := True;
 
-      zLogContestInit(MyContest.Name);
+      zLogContestInit(MyContest.Name, menu.CFGFileName);
    finally
       menu.Release();
    end;
