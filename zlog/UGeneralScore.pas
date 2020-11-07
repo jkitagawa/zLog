@@ -665,6 +665,7 @@ var
    w: Integer;
    strScore: string;
    DispColCount: Integer;
+   nScore: Integer;
 begin
    TotQSO := 0;
    TotPoints := 0;
@@ -757,8 +758,13 @@ begin
       strScore := IntToStr3(TotPoints);
    end
    else begin
-      strScore := IntToStr3(TotPoints * TotMulti);
+      nScore := zLogGetTotalScore();
+      if nScore = -1 then begin
+         nScore := TotPoints * TotMulti;
+      end;
+      strScore := IntToStr3(nScore);
    end;
+
    Grid.Cells[0, row] := 'Score';
    Grid.Cells[1, row] := '';
    Grid.Cells[2, row] := '';

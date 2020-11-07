@@ -27,6 +27,7 @@ procedure zLogTerminate();
 function zLogCalcPointsHookHandler(aQSO: TQSO): Boolean;
 function zLogExtractMultiHookHandler(aQSO: TQSO; var strMulti: string): Boolean;
 function zLogValidMultiHookHandler(strMulti: string; var fValidMulti: Boolean): Boolean;
+function zLogGetTotalScore(): Integer;
 
 implementation
 
@@ -72,6 +73,7 @@ type
   TExtensionPointsCalcProc = function(pqsorec: PTQSOData): Integer; stdcall;
   TExtensionExtractMultiProc = function(pqsorec: PTQSOData; pszMultiStr: PAnsiChar; nBufferSize: Integer): Integer; stdcall;
   TExtensionValidMultiProc = function(pszMultiStr: PAnsiChar): Boolean; stdcall;
+  TExtensionGetTotalScoreProc = function(): Integer; stdcall;
 
 var
   hExtensionDLL: THandle;
@@ -79,6 +81,7 @@ var
   pfnExtensionCalsPountsProc: TExtensionPointsCalcProc;
   pfnExtensionExtractMultiProc: TExtensionExtractMultiProc;
   pfnExtensionValidMultiProc: TExtensionValidMultiProc;
+  pfnExtensionGetTotalScoreProc: TExtensionGetTotalScoreProc;
 
 // zLogの起動
 procedure zLogInitialize();
@@ -104,6 +107,7 @@ begin
    @pfnExtensionCalsPountsProc := GetProcAddress(hExtensionDLL, LPCSTR('zLogExtensionPointsCalcProcName'));
    @pfnExtensionExtractMultiProc := GetProcAddress(hExtensionDLL, LPCSTR('zLogExtensionExtractMultiProcName'));
    @pfnExtensionValidMultiProc := GetProcAddress(hExtensionDLL, LPCSTR('zLogExtensionValidMultiProcName'));
+   @pfnExtensionGetTotalScoreProc := GetProcAddress(hExtensionDLL, LPCSTR('zLogExtensionGetTotalScoreProcName'));
 end;
 
 // コンテストの初期化完了
@@ -263,6 +267,28 @@ begin
    Result := True;
 end;
 
+// 総得点を返す
+// -1は未実装や計算しないとき（元の処理を行う）
+// >=0 は総得点
+function zLogGetTotalScore(): Integer;
+begin
+   {$IFDEF DEBUG}
+   OutputDebugString(PChar('zLogGetTotalScore()'));
+   {$ENDIF}
+
+   if hExtensionDLL = 0 then begin
+      Result := -1;  // not handled
+      Exit;
+   end;
+
+   if Not Assigned(pfnExtensionGetTotalScoreProc) then begin
+      Result := -1;  // not handled
+      Exit;
+   end;
+
+   Result := pfnExtensionGetTotalScoreProc();
+end;
+
 initialization
   zLogContestInitialized := False;
 
@@ -272,6 +298,7 @@ initialization
   pfnExtensionCalsPountsProc := nil;
   pfnExtensionExtractMultiProc := nil;
   pfnExtensionValidMultiProc := nil;
+  pfnExtensionGetTotalScoreProc := nil;
 
 finalization
 
